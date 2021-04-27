@@ -5,10 +5,8 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/gorilla/websocket"
-
-	"github.com/hasura/pgdeltastream/types"
 	"github.com/jackc/pgx"
+	"github.com/nikunjy/pgdeltastream/types"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -52,10 +50,7 @@ func LRStream(session *types.Session) {
 			}
 			walData := message.WalMessage.WalData
 			log.Infof("Received replication message: %s", string(walData))
-
-			// send message over ws
-			// TODO: check if ws is open
-			session.WSConn.WriteMessage(websocket.TextMessage, walData)
+			session.OutData <- walData
 		}
 
 		if message.ServerHeartbeat != nil {
@@ -77,19 +72,12 @@ func LRStream(session *types.Session) {
 // LRListenAck listens on the websocket for ack messages
 // The commited LSN is extracted and is updated to the server
 func LRListenAck(session *types.Session, wsErr chan<- error) {
-	jsonMsg := make(map[string]string)
 	for {
 		log.Info("Listening for WS message")
-		//_, msg, err := session.WSConn.ReadMessage()
-		err := session.WSConn.ReadJSON(&jsonMsg)
-		if err != nil {
-			log.WithError(err).Error("Error reading from websocket")
-			wsErr <- err // send the error to the channel to terminate connection
-			return
+		lsn := <-session.AcksLSN
+		if err := lrAckLSN(session, lsn); err != nil {
+			wsErr <- err
 		}
-		log.Info("Received WS message: ", jsonMsg)
-		lsn := jsonMsg["lsn"]
-		lrAckLSN(session, lsn)
 	}
 }
 
@@ -102,11 +90,9 @@ func sendStandbyStatus(session *types.Session) error {
 	log.Info(standbyStatus)
 	standbyStatus.ReplyRequested = 0
 	log.Info("Sending Standby Status with LSN ", pgx.FormatLSN(session.RestartLSN))
-	err = session.ReplConn.SendStandbyStatus(standbyStatus)
-	if err != nil {
+	if err = session.ReplConn.SendStandbyStatus(standbyStatus); err != nil {
 		return fmt.Errorf("unable to send StandbyStatus object: %s", err)
 	}
-
 	return nil
 }
 

@@ -5,14 +5,14 @@ This project and everyone participating in it is governed by the [Code of Conduc
 - Set up PostgreSQL as described in the [README](README.md)
 - Install Go 1.10 and set up the Go environment variables
 - Install [dep](https://github.com/golang/dep)
-- Clone this repo to `$GOPATH/src/github.com/hasura/pgdeltastream`
+- Clone this repo to `$GOPATH/src/github.com/nikunjy/pgdeltastream`
 - Run `dep ensure` to update the dependencies
 
 # Build
 Build the project using the `go build` command:
 
 ```bash
-$ cd $GOPATH/src/github.com/hasura/pgdeltastream
+$ cd $GOPATH/src/github.com/nikunjy/pgdeltastream
 $ go build
 ```
 
@@ -33,5 +33,5 @@ $ cd server
 $ go test
 <output truncated>
 PASS
-ok   github.com/hasura/pgdeltastream/server 0.113s
+ok   github.com/nikunjy/pgdeltastream/server 0.113s
 ```

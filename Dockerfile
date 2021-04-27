@@ -11,9 +11,9 @@ ENV SERVERPORT 12312
 
 RUN go get -u github.com/golang/dep/cmd/dep
 
-ADD . /go/src/github.com/hasura/pgdeltastream
+ADD . /go/src/github.com/nikunjy/pgdeltastream
 
-WORKDIR /go/src/github.com/hasura/pgdeltastream
+WORKDIR /go/src/github.com/nikunjy/pgdeltastream
 
 RUN dep ensure --vendor-only
 

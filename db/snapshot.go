@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/hasura/pgdeltastream/types"
 	"github.com/jackc/pgx"
+	"github.com/nikunjy/pgdeltastream/types"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -65,6 +65,5 @@ func processRows(rows *pgx.Rows) []map[string]interface{} {
 		}
 		resultsList = append(resultsList, rowJSON)
 	}
-
 	return resultsList
 }

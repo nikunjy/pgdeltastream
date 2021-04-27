@@ -193,4 +193,4 @@ Contributions are welcome!
 
 Read the [contributing guide](CONTRIBUTING.md) to learn about setting up the development environment, building the project and running tests.
 
-Do check the [issues](https://github.com/hasura/pgdeltastream/issues) page to see the backlog and help us in improving PGDeltaStream!
+Do check the [issues](https://github.com/nikunjy/pgdeltastream/issues) page to see the backlog and help us in improving PGDeltaStream!

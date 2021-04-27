@@ -3,7 +3,6 @@ package types
 import (
 	"context"
 
-	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx"
 )
 
@@ -15,7 +14,8 @@ type Session struct {
 	ReplConn *pgx.ReplicationConn
 	PGConn   *pgx.Conn
 
-	WSConn *websocket.Conn
+	OutData chan []byte
+	AcksLSN chan string
 
 	SlotName     string
 	SnapshotName string
@@ -37,18 +37,9 @@ type SnapshotDataJSON struct {
 type OrderBy struct {
 	Column string `json:"column" binding:"exists"`
 	Order  string `json:"order" binding:"exists"`
-	// Nulls TODO
 }
 
 type Wal2JSONEvent struct {
 	NextLSN string `json:"nextlsn"`
 	Change  []map[string]interface{}
 }
-
-/*
-type Wal2JSONChange struct{
-	Kind string `json:"kind"`
-	Schema string `json:"schema"`
-
-}
-*/
