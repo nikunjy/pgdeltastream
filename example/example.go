@@ -26,6 +26,10 @@ func main() {
 		panic(err)
 	}
 	session.Out = make(chan types.Wal2JSONEvent)
+
+	if err := session.EnsureSlot(); err != nil {
+		panic(err)
+	}
 	fmt.Println("Session details", session.RestartLSN, session.SnapshotName)
 	//ctx := context.Background()
 

@@ -70,37 +70,62 @@ func NewSession(cfg *Config, log logger.Logger) (session *Session, retErr error)
 			replConn.Close()
 		}
 	}()
+	return session, nil
+}
 
-	log.Info("Creating replication slot ", session.slotName)
-	var consistentPoint, snapshotName string
-	if cfg.SlotName != "" {
-		row := pgConn.QueryRow(
-			`select plugin, restart_lsn from pg_replication_slots where slot_name=$1`,
-			session.slotName,
-		)
-		var plugin string
-		if err := row.Scan(&plugin, &consistentPoint); err != nil {
-			return nil, err
-		}
-		if plugin != "wal2json" {
-			return nil, errors.New("wrong plugin for the slot")
-		}
-	} else {
-		consistentPoint, snapshotName, err = session.ReplConn.CreateReplicationSlotEx(session.slotName, "wal2json")
-
-		if err != nil {
-			return nil, err
-		}
-		log.Info("Created replication slot with consistent point", session.slotName, consistentPoint, snapshotName)
+func (session *Session) EnsureSlot() error {
+	session.Logger.Info("Creating replication slot ", session.slotName)
+	consistentPoint, snapshotName, err := session.ensureSlot()
+	if err != nil {
+		return err
 	}
 
 	lsn, err := pgx.ParseLSN(consistentPoint)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	session.RestartLSN = lsn
 	session.SnapshotName = snapshotName
-	return session, nil
+	return nil
+}
+
+func (session *Session) Close() {
+	if session.ReplConn != nil {
+		session.ReplConn.Close()
+	}
+
+	if session.PGConn != nil {
+		session.PGConn.Close()
+	}
+}
+
+func (session *Session) getSlot() (string, string, error) {
+	var consistentPoint string
+	row := session.PGConn.QueryRow(
+		`select plugin, restart_lsn from pg_replication_slots where slot_name=$1`,
+		session.slotName,
+	)
+	var plugin string
+	if err := row.Scan(&plugin, &consistentPoint); err != nil {
+		return "", "", err
+	}
+	if plugin != "wal2json" {
+		return "", "", errors.New("wrong plugin for the slot")
+	}
+	return consistentPoint, "", nil
+}
+
+func (session *Session) ensureSlot() (string, string, error) {
+	var consistentPoint, snapshotName string
+	var err error
+	consistentPoint, snapshotName, err = session.ReplConn.CreateReplicationSlotEx(session.slotName, "wal2json")
+	if err == nil {
+		session.Logger.Info("Created a new replication slot", session.slotName)
+		return consistentPoint, snapshotName, nil
+	}
+	session.Logger.Info("Trying to use an existing replication slot because creation caused error", err, session.slotName)
+	return session.getSlot()
+
 }
 
 // CheckAndCreateReplConn creates a new replication connection
