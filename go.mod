@@ -7,6 +7,7 @@ require (
 	github.com/gin-gonic/gin v1.1.5-0.20180223010933-5d3f30cfc81f
 	github.com/golang/protobuf v1.0.1-0.20180202184318-bbd03ef6da3a
 	github.com/gorilla/websocket v1.2.1-0.20180306181548-eb925808374e
+	github.com/hasura/pgdeltastream v0.1.7
 	github.com/jackc/pgx v3.1.1-0.20180308130554-a07b87eb8b69+incompatible
 	github.com/json-iterator/go v0.0.0-20180301112320-25fa392355a1
 	github.com/mattn/go-isatty v0.0.4

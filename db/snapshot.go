@@ -11,7 +11,7 @@ import (
 
 // SnapshotData queries the snapshot for data from the given table
 // and returns the results as a JSON array
-func SnapshotData(session *types.Session, requestParams *types.SnapshotDataJSON) ([]map[string]interface{}, error) {
+func SnapshotData(session *Session, requestParams *types.SnapshotDataJSON) ([]map[string]interface{}, error) {
 	log.Info("Begin transaction")
 	tx, err := session.PGConn.BeginEx(context.TODO(), &pgx.TxOptions{
 		IsoLevel: pgx.RepeatableRead,

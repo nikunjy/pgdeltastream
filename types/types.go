@@ -1,27 +1,5 @@
 package types
 
-import (
-	"context"
-
-	"github.com/jackc/pgx"
-)
-
-// Session stores the context, active db and ws connections, and replication slot state
-type Session struct {
-	Ctx        context.Context
-	CancelFunc context.CancelFunc
-
-	ReplConn *pgx.ReplicationConn
-	PGConn   *pgx.Conn
-
-	OutData chan []byte
-	AcksLSN chan string
-
-	SlotName     string
-	SnapshotName string
-	RestartLSN   uint64
-}
-
 // SnapshotDataJSON is the struct that binds with an incoming request for snapshot data
 type SnapshotDataJSON struct {
 	// SlotName is the name of the replication slot for which the snapshot data needs to be fetched
@@ -39,7 +17,24 @@ type OrderBy struct {
 	Order  string `json:"order" binding:"exists"`
 }
 
+type WalChange struct {
+	Kind         string        `json:"kind"`
+	Schema       string        `json:"schema"`
+	Table        string        `json:"table"`
+	ColumnNames  []string      `json:"columnnames"`
+	ColumnTypes  []string      `json:"columntypes"`
+	ColumnValues []interface{} `json:"columnvalues"`
+}
+
+func (w *WalChange) Values() map[string]interface{} {
+	ret := make(map[string]interface{}, len(w.ColumnNames))
+	for i := 0; i < len(w.ColumnNames); i++ {
+		ret[w.ColumnNames[i]] = w.ColumnValues[i]
+	}
+	return ret
+}
+
 type Wal2JSONEvent struct {
-	NextLSN string `json:"nextlsn"`
-	Change  []map[string]interface{}
+	NextLSN string      `json:"nextlsn"`
+	Change  []WalChange `json:"change"`
 }

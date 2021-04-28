@@ -1,84 +1,117 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"strings"
 	"time"
 
-	"github.com/nikunjy/pgdeltastream/types"
-	log "github.com/sirupsen/logrus"
+	"github.com/nikunjy/pgdeltastream/logger"
 
 	"github.com/jackc/pgx"
 )
 
-var dbConfig = pgx.ConnConfig{}
+type Config struct {
+	*pgx.ConnConfig
+	SlotName string
+}
 
 // Initialize the database configuration
-func CreateConfig(dbName, pgUser, pgPass, pgHost string, pgPort int) {
+func (cfg *Config) WithDB(dbName, pgUser, pgPass, pgHost string, pgPort int) *Config {
+	dbConfig := &pgx.ConnConfig{}
 	dbConfig.Database = dbName
 	dbConfig.Host = pgHost
 	dbConfig.Port = uint16(pgPort)
 	dbConfig.User = pgUser
 	dbConfig.Password = pgPass
+	cfg.ConnConfig = dbConfig
+	return cfg
 }
 
-// Init function
-// - creates a db connection
-// - creates a replication connection
-// - delete existing replication slots
-// - creates a new replication slot
-// - gets the consistent point LSN and snapshot name
-// - populates the Session object
-func Init(session *types.Session) error {
+func NewSession(cfg *Config, log logger.Logger) (session *Session, retErr error) {
 	// create a regular pg connection for use by transactions
-	log.Info("Creating regular connection to db")
+	dbConfig := *cfg.ConnConfig
 	pgConn, err := pgx.Connect(dbConfig)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	session.PGConn = pgConn
+
+	if log == nil {
+		log = logger.NewDebugLogger()
+	}
+
+	defer func() {
+		if retErr != nil {
+			log.Error("Encountered error creating new session. Closing connection", retErr)
+			pgConn.Close()
+		}
+	}()
+
+	session = &Session{
+		cfg: cfg,
+
+		Logger:   log,
+		PGConn:   pgConn,
+		slotName: generateSlotName(cfg.SlotName),
+	}
+
 	log.Info("Creating replication connection to ", dbConfig.Database)
-	if session.ReplConn != nil {
-		log.Info("Closing existing replication connection")
-		session.ReplConn.Close()
-	}
+
 	replConn, err := pgx.ReplicationConnect(dbConfig)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	session.ReplConn = replConn
-	// delete all existing slots
-	err = deleteAllSlots(session)
-	if err != nil {
-		log.WithError(err).Error("could not delete replication slots")
-	}
-	// create new slots
-	slotName := generateSlotName()
-	session.SlotName = slotName
-	log.Info("Creating replication slot ", slotName)
-	consistentPoint, snapshotName, err := session.ReplConn.CreateReplicationSlotEx(slotName, "wal2json")
-	if err != nil {
-		return err
-	}
-	log.Infof("Created replication slot \"%s\" with consistent point LSN = %s, snapshot name = %s",
-		slotName, consistentPoint, snapshotName)
 
-	lsn, _ := pgx.ParseLSN(consistentPoint)
+	defer func() {
+		if retErr != nil {
+			log.Error("Encountered error creating new session. Closing replication connection")
+			replConn.Close()
+		}
+	}()
+
+	log.Info("Creating replication slot ", session.slotName)
+	var consistentPoint, snapshotName string
+	if cfg.SlotName != "" {
+		row := pgConn.QueryRow(
+			`select plugin, restart_lsn from pg_replication_slots where slot_name=$1`,
+			session.slotName,
+		)
+		var plugin string
+		if err := row.Scan(&plugin, &consistentPoint); err != nil {
+			return nil, err
+		}
+		if plugin != "wal2json" {
+			return nil, errors.New("wrong plugin for the slot")
+		}
+	} else {
+		consistentPoint, snapshotName, err = session.ReplConn.CreateReplicationSlotEx(session.slotName, "wal2json")
+
+		if err != nil {
+			return nil, err
+		}
+		log.Info("Created replication slot with consistent point", session.slotName, consistentPoint, snapshotName)
+	}
+
+	lsn, err := pgx.ParseLSN(consistentPoint)
+	if err != nil {
+		return nil, err
+	}
 	session.RestartLSN = lsn
 	session.SnapshotName = snapshotName
-	return nil
+	return session, nil
 }
 
 // CheckAndCreateReplConn creates a new replication connection
-func CheckAndCreateReplConn(session *types.Session) error {
+func (session *Session) ReCreateReplConn() error {
 	if session.ReplConn != nil {
 		if session.ReplConn.IsAlive() {
 			// reuse the existing connection (or close it nonetheless?)
 			return nil
 		}
 	}
-	replConn, err := pgx.ReplicationConnect(dbConfig)
+	replConn, err := pgx.ReplicationConnect(*session.cfg.ConnConfig)
 	if err != nil {
 		return err
 	}
@@ -87,7 +120,7 @@ func CheckAndCreateReplConn(session *types.Session) error {
 }
 
 // generates a random slot name which can be remembered
-func generateSlotName() string {
+func generateSlotName(prefix string) string {
 	// list of random words
 	strs := []string{
 		"gigantic",
@@ -102,30 +135,34 @@ func generateSlotName() string {
 		"mundane",
 	}
 	rand.Seed(time.Now().Unix())
+	if prefix == "" {
+		prefix = strs[rand.Intn(len(strs))]
+		return fmt.Sprintf("pgdelta_%s%d", prefix, rand.Intn(100))
+	}
 	// generate name such as delta_gigantic20
-	name := fmt.Sprintf("delta_%s%d", strs[rand.Intn(len(strs))], rand.Intn(100))
-	return name
+	return fmt.Sprintf("pgdelta_%s", prefix)
 }
 
 // delete all old slots that were created by us
-func deleteAllSlots(session *types.Session) error {
+func (session *Session) DeleteAllSlots() error {
 	rows, err := session.PGConn.Query("SELECT slot_name FROM pg_replication_slots")
 	if err != nil {
 		return err
 	}
+	log := session.Logger
 	for rows.Next() {
 		var slotName string
 		rows.Scan(&slotName)
 
 		// only delete slots created by this program
-		if !strings.Contains(slotName, "delta_") {
+		if !strings.Contains(slotName, "pgdelta_") {
 			continue
 		}
 
-		log.Infof("Deleting replication slot %s", slotName)
+		log.Info("Deleting replication slot", slotName)
 		err = session.ReplConn.DropReplicationSlot(slotName)
 		if err != nil {
-			log.WithError(err).Error("could not delete slot ", slotName)
+			log.Error("could not delete slot ", slotName, err)
 		}
 	}
 	return nil
